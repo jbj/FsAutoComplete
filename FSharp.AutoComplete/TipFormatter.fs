@@ -5,17 +5,59 @@ module internal FSharp.InteractiveAutocomplete.TipFormatter
 
 open System.Text
 open Microsoft.FSharp.Compiler.SourceCodeServices
+open System.Collections.Generic
 
 // --------------------------------------------------------------------------------------
 // Formatting of tool-tip information displayed in F# IntelliSense
 // --------------------------------------------------------------------------------------
 
+(* This cache is slightly redundant wrt. the one in the global state. It it
+ * different, however, in that the second layer of Dictionary is authoritative:
+ * if there's a miss then the helptext doesn't exist. *)
+let private summaryCache =
+  Dictionary<
+      string (* xmlfile *),
+      Dictionary<string (* signature *), string (* summary *)>
+    >()
+
+let getSummaryThroughCache xmlfile signature =
+  let signatures =
+    match summaryCache.TryGetValue(xmlfile) with
+    | true, signatures -> signatures
+    | false, _ ->
+        let signatures = Dictionary<string, string>()
+        let xname s = System.Xml.Linq.XName.Get(s)
+        try
+          System.Xml.Linq.XElement.Load(xmlfile)
+            .Element(xname "members")
+            .Elements(xname "member")
+          |> Seq.iter (fun membr ->
+              try
+                signatures.Add(membr.Attribute(xname "name").Value,
+                               membr.Element(xname "summary").Value)
+              with _ -> ()
+            )
+        with _ -> ()
+        summaryCache.Add(xmlfile, signatures)
+        signatures
+  match signatures.TryGetValue(signature) with
+  | true, summary -> Some summary
+  | false, _ -> None
+
 let private buildFormatComment cmt (sb:StringBuilder) =
   match cmt with
   | FSharpXmlDoc.Text s -> sb.AppendLine(s)
-  // For 'XmlCommentSignature' we could get documentation from 'xml'
-  // files, but I'm not sure whether these are available on Mono
-  | _ -> sb
+  | FSharpXmlDoc.XmlDocFileSignature (file, signature) ->
+      (* The documentation may exist in an XML file installed together with the
+       * dll. We maintain a cache of all XML files we ever tried to open so we
+       * never have to open the same XML file twice. *)
+      let xmlfile = if file.EndsWith(".dll")
+                    then file.Substring(0, file.Length - 4) + ".xml"
+                    else file
+      match getSummaryThroughCache xmlfile signature with
+      | None -> sb
+      | Some summary -> sb.AppendLine(summary)
+  | FSharpXmlDoc.None -> sb
 
 // If 'isSingle' is true (meaning that this is the only tip displayed)
 // then we add first line "Multiple overloads" because MD prints first

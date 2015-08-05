@@ -68,6 +68,7 @@
     <Reference Include="mscorlib" />
     <Reference Include="System" />
     <Reference Include="System.Xml" />
+    <Reference Include="System.Xml.Linq" />
     <Reference Include="System.Numerics" />
     <Reference Include="NDesk.Options">
       <HintPath>..\packages\NDesk.Options\lib\NDesk.Options.dll</HintPath>
